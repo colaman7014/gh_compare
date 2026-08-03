@@ -385,16 +385,14 @@ commit、push、開 PR、review、merge 即完成，無需逐檔案處理。
 
 **案例 B：全部檔案皆為情境 B**
 
-禁止對此 merge commit 執行 `git revert`。開一個 PR，對每個檔案依序執行：
+禁止對此 merge commit 執行 `git revert`。每個檔案「目標 commit 的變更」與「之後每次 commit 對此檔案的變更」由程式自動取出、整理成一份異動報告（見下方），不需人工逐一手動下 `git show`；人工只需依報告內容決定保留哪些變更：
 
-1. 列出此檔案之後動過的 commit：`git log --oneline <merge-commit-sha>..main -- <file>`
-2. 用 commit message 中的 `REQ-` 編號（或 `gh pr list --search <sha>`，若有安裝 `gh`）反查對應需求單與負責人
-3. 看目標 commit 當初改了什麼：`git show <merge-commit-sha> -- <file>`
-4. 對步驟 1 列出的每個後續 commit 執行 `git show <sha> -- <file>`，確認各自加了什麼
-5. 比對目前檔案內容，判斷哪些部分屬於要回退的需求、哪些屬於後續需求
-6. 用編輯器手動修改檔案：只移除要回退需求的內容，保留後續需求的內容
-7. 找步驟 2 的負責人核對回退後內容是否仍符合他們原本需求，核對結果記錄在 PR 描述中（呼應 189 行規則）
-8. commit、push、開 PR、review、merge
+1. 依報告產生方式：對每個檔案，程式執行 `git diff <merge-commit-sha>^ <merge-commit-sha> -- <file>` 取得目標 commit 的變更，再對 `git log --reverse --format=%H <merge-commit-sha>..main -- <file>` 列出的每個後續 commit 執行 `git diff <sha>^ <sha> -- <file>`，依時間先後整理成報告（`^` 取第一父提交，merge commit 與一般 commit 皆適用，避免 `git show` 對 merge commit 預設不輸出 diff 的問題）
+2. 用 commit message 中的 `REQ-` 編號（或 `gh pr list --search <sha>`，若有安裝 `gh`）反查報告中每個 commit 對應的需求單與負責人
+3. 對照報告內容，判斷目前檔案內容哪些部分屬於要回退的需求、哪些屬於後續需求
+4. 用編輯器手動修改檔案：只移除要回退需求的內容，保留後續需求的內容
+5. 找步驟 2 的負責人核對回退後內容是否仍符合他們原本需求，核對結果記錄在 PR 描述中（呼應 189 行規則）
+6. commit、push、開 PR、review、merge
 
 **案例 A+B：同一個 merge commit 混合兩種檔案**
 
@@ -409,10 +407,10 @@ commit、push、開 PR、review、merge 即完成，無需逐檔案處理。
   git commit -m "revert changes from <merge-commit-sha> (no later modification)"
   ```
 
-- 情境 B 的檔案逐檔走「案例 B」步驟 1～6 的人工比對與手動編輯，另外 commit。
+- 情境 B 的檔案依「案例 B」自動產生的異動報告，走步驟 2～6 的人工比對與手動編輯，另外 commit。
 - 兩類變更可合併成同一個 PR、分成不同 commit，PR 描述需列出情境 B 檔案的核對結果（呼應 189 行規則）。
 
-以上三種分類與對應處理方式已實作於 `.github/workflows/revert-impact-check.yml`：workflow 根據 6.1 節判斷結果自動歸類為案例 A／案例 B／案例 A+B，並在 job summary 輸出對應的可複製指令或人工處理步驟。已用本 repo 案例驗證：`8890949`（純案例 A）、`a1a37a2`（純案例 B）、`6c86897`（案例 A+B，10 檔混合）三種輸出皆正確。
+以上三種分類與對應處理方式已實作於 `.github/workflows/revert-impact-check.yml`：workflow 根據 6.1 節判斷結果自動歸類為案例 A／案例 B／案例 A+B，並在 job summary 輸出對應的可複製指令，或（案例 B、案例 A+B 的情境 B 檔案）自動產生逐 commit 異動報告。已用本 repo 案例驗證：`8890949`（純案例 A）、`a1a37a2`（純案例 B）、`6c86897`（案例 A+B，10 檔混合）三種輸出皆正確，並修正過程中發現 `git show <merge-commit> -- <file>` 對 merge commit 預設不輸出 diff 的問題，改用 `git diff <sha>^ <sha> -- <file>` 才能正確取出報告內容。
 
 ## 7. 適用範圍說明
 

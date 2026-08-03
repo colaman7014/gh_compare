@@ -51,6 +51,35 @@ jobs:
             echo "| --- | --- | --- |"
           } >> "$GITHUB_STEP_SUMMARY"
 
+          # 針對情境 B 檔案，自動產生「目標 commit + 之後每次 commit」的異動報告，
+          # 供人工依報告內容決定保留哪些變更，不必自己逐一手動下 git show。
+          gen_file_report() {
+            local f="$1"
+            echo "<details><summary>📄 <code>$f</code> 異動報告（點開展開）</summary>"
+            echo ""
+            echo "**目標回退 commit（$MC）對此檔案的變更：**"
+            echo ""
+            echo '```diff'
+            git show "$MC" -- "$f"
+            echo '```'
+            echo ""
+            echo "**之後修改此檔案的 commit（依時間先後）：**"
+            echo ""
+            local shas
+            shas=$(git log --reverse --format=%H "${MC}..main" -- "$f")
+            while IFS= read -r sha; do
+              [ -z "$sha" ] && continue
+              echo "- \`$(git log -1 --format='%h %s (%an, %ad)' --date=short "$sha")\`"
+              echo ""
+              echo '```diff'
+              git show "$sha" -- "$f"
+              echo '```'
+              echo ""
+            done <<< "$shas"
+            echo "</details>"
+            echo ""
+          }
+
           a_files=()
           b_files=()
           while IFS= read -r f; do
@@ -88,16 +117,20 @@ jobs:
             {
               echo "**案例 B：全部檔案皆需人工 review**"
               echo ""
-              echo "**禁止**對此 merge commit 執行 \`git revert\`（全部檔案之後都被其他已合併需求修改過）。開一個 PR，對每個檔案依序執行："
+              echo "**禁止**對此 merge commit 執行 \`git revert\`（全部檔案之後都被其他已合併需求修改過）。以下為每個檔案自動產生的異動報告，依報告內容決定保留哪些變更，不需自己逐一手動下 \`git show\`："
               echo ""
-              echo "1. 列出此檔案之後動過的 commit：\`git log --oneline ${MC}..main -- <file>\`"
-              echo "2. 用 commit message 中的 \`REQ-\` 編號，或 \`gh pr list --search <sha>\`（若有裝 gh），反查對應需求單與負責人"
-              echo "3. 看目標 commit 當初改了什麼：\`git show $MC -- <file>\`"
-              echo "4. 對步驟 1 列出的每個後續 commit 執行 \`git show <sha> -- <file>\`，確認各自加了什麼"
-              echo "5. 比對目前檔案內容，判斷哪些部分屬於要回退的需求、哪些屬於後續需求"
-              echo "6. 用編輯器手動修改檔案：只移除要回退需求的內容，保留後續需求的內容"
-              echo "7. 找步驟 2 的負責人核對回退後內容是否仍符合他們原本需求，核對結果記錄在 PR 描述中"
-              echo "8. commit、push、開 PR、review、merge"
+            } >> "$GITHUB_STEP_SUMMARY"
+            for f in "${b_files[@]}"; do
+              gen_file_report "$f" >> "$GITHUB_STEP_SUMMARY"
+            done
+            {
+              echo "**依上方報告，開一個 PR 對每個檔案執行：**"
+              echo ""
+              echo "1. 用 commit message 中的 \`REQ-\` 編號，或 \`gh pr list --search <sha>\`（若有裝 gh），反查報告中每個 commit 對應的需求單與負責人"
+              echo "2. 比對報告中「目標 commit 的變更」與「之後各 commit 的變更」，判斷目前檔案內容哪些部分屬於要回退的需求、哪些屬於後續需求"
+              echo "3. 用編輯器手動修改檔案：只移除要回退需求的內容，保留後續需求的內容"
+              echo "4. 找步驟 1 的負責人核對回退後內容是否仍符合他們原本需求，核對結果記錄在 PR 描述中"
+              echo "5. commit、push、開 PR、review、merge"
             } >> "$GITHUB_STEP_SUMMARY"
 
           else
@@ -116,13 +149,14 @@ jobs:
               echo "git commit -m \"revert changes from $MC (A: no later modification)\""
               echo '```'
               echo ""
-              echo "**B 類（需人工 review）逐檔處理：**"
+              echo "**B 類（需人工 review）：以下為每個檔案自動產生的異動報告，依報告內容決定保留哪些變更：**"
               echo ""
-              for f in "${b_files[@]}"; do
-                echo "- \`$f\`：先跑 \`git log --oneline ${MC}..main -- $f\`，找出後續需求負責人核對，再手動編輯此檔只移除要回退的部分"
-              done
-              echo ""
-              echo "A 類與 B 類的變更可合併成同一個 PR（分成不同 commit），PR 描述需列出 B 類檔案的核對結果。"
+            } >> "$GITHUB_STEP_SUMMARY"
+            for f in "${b_files[@]}"; do
+              gen_file_report "$f" >> "$GITHUB_STEP_SUMMARY"
+            done
+            {
+              echo "依報告反查負責人核對後，手動編輯 B 類檔案只移除要回退需求的內容、保留後續需求的內容。A 類與 B 類的變更可合併成同一個 PR（分成不同 commit），PR 描述需列出 B 類檔案的核對結果。"
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 

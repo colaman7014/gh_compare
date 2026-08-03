@@ -56,11 +56,11 @@ jobs:
             [ -z "$f" ] && continue
             hits=$(git log --oneline "${MC}..main" -- "$f")
             if [ -z "$hits" ]; then
-              echo "| \`$f\` | 開新 PR + \`git revert\` | 此檔案在目標 commit 之後未再被修改，可直接還原 |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| \`$f\` | 開新 PR + \`git revert -m 1 $MC\` | 此檔案在目標 commit 之後未再被修改，可直接還原 |" >> "$GITHUB_STEP_SUMMARY"
             else
               need_manual=1
               n=$(echo "$hits" | wc -l | tr -d ' ')
-              echo "| \`$f\` | 開新 PR + 人工 review 手動編輯 | 此檔案之後仍被 $n 個 commit 修改過，直接還原會連同後續變更一起打掉，須人工確認保留內容 |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| \`$f\` | 開新 PR + 人工 review 手動編輯（先跑 \`git log ${MC}..main -- $f\`） | 此檔案之後仍被 $n 個 commit 修改過，直接還原會連同後續變更一起打掉，須人工確認保留內容 |" >> "$GITHUB_STEP_SUMMARY"
             fi
           done < <(git diff --name-only "${MC}^" "$MC")
 
@@ -68,7 +68,14 @@ jobs:
           if [ "$need_manual" -eq 1 ]; then
             echo "> 部分檔案需開新 PR、人工 review 後手動編輯還原，禁止直接對整個 merge commit 執行 \`git revert\`。" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "> 全部檔案可開新 PR，並用 \`git revert -m 1 $MC\` 直接還原。" >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo "> 全部檔案可開新 PR，並直接執行以下指令還原（可複製整段執行）："
+              echo ""
+              echo '```bash'
+              echo "git checkout -b revert/${MC}"
+              echo "git revert -m 1 $MC"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
 
           echo "" >> "$GITHUB_STEP_SUMMARY"

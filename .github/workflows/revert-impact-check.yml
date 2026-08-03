@@ -60,7 +60,7 @@ jobs:
             echo "**目標回退 commit（$MC）對此檔案的變更：**"
             echo ""
             echo '```diff'
-            git show "$MC" -- "$f"
+            git diff "${MC}^" "$MC" -- "$f"
             echo '```'
             echo ""
             echo "**之後修改此檔案的 commit（依時間先後）：**"
@@ -72,7 +72,7 @@ jobs:
               echo "- \`$(git log -1 --format='%h %s (%an, %ad)' --date=short "$sha")\`"
               echo ""
               echo '```diff'
-              git show "$sha" -- "$f"
+              git diff "${sha}^" "$sha" -- "$f"
               echo '```'
               echo ""
             done <<< "$shas"

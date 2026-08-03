@@ -286,6 +286,29 @@ done
 - 情境 B 的後續 commit 清單可再用 `gh pr list --search <sha>` 或 commit message 中的 `REQ-` 編號反查對應需求單號，自動列出「這個檔案還被哪些需求單動過」，減少人工翻 log 的量。
 - 此 workflow 屬於查詢／唯讀性質，不觸碰 `main` 或快照 branch，不需要 Environment 核准；仍須遵守跳板機 Runner 隔離原則（見 requirements.md），不得共用可存取 Environment secrets 的 workflow。
 
+### 6.2 實測範例（本 repo 驗證紀錄）
+
+以下三組案例已在本 repo 實際操作驗證第 6 節與 6.1 節規則，非假想範例；commit 皆為本 repo 真實歷史，可用 `git log --oneline --graph` 查看。
+
+**案例 1（情境 A，無後續衝突）**
+
+- `jobs/load.kjb`：REQ-A 修改（merge commit `68beb66` "M1 merge REQ-A"），REQ-B 只改 `jobs/job2.kjb`（merge commit `8890949` "M2 merge REQ-B"），未動 `load.kjb`。
+- 判斷：`git log 68beb66..main -- jobs/load.kjb` 結果為空 → 情境 A。
+- 執行 `git revert -m 1 68beb66`：無衝突，`load.kjb` 回到 REQ-A 之前版本，`job2.kjb`（REQ-B 的變更）不受影響。回退結果併入 `main` 為 `3ff3065` "M3 revert REQ-A"。
+
+**案例 2（情境 B，有後續衝突）**
+
+- `jobs/view.xml`：REQ-A2 加入內容（merge commit `a1a37a2` "M1b merge REQ-A2"），REQ-B2 在其基礎上再加內容（merge commit `988c2b2` "M2b merge REQ-B2"），兩需求改到同一檔案的重疊區塊。
+- 判斷：`git log a1a37a2..main -- jobs/view.xml` 結果非空（顯示 REQ-B2 的 commit）→ 情境 B。
+- 先實際嘗試 `git revert -m 1 a1a37a2` 驗證：產生真實 `CONFLICT (content)`，證實直接 revert 會打掉 REQ-B2 的變更，故 `git revert --abort` 中止。
+- 改人工比對後手動編輯 `view.xml`（只保留 REQ-B2 內容、移除 REQ-A2 內容），另開分支產生新 commit 併入 `main`（`f94258c` "M3b 撤回REQ-A2保留REQ-B2"）。
+
+**案例 3（10 檔混合，驗證 6.1 節自動化判斷）**
+
+- `jobs2/f01.txt` ~ `f10.txt`：REQ-C 一次修改全部 10 檔（merge commit `6c86897` "Mc1 merge REQ-C"）；REQ-D 接著只疊加修改其中 `f01`~`f05`（merge commit `5b60623` "Mc2 merge REQ-D"），`f06`~`f10` 未再被動過。
+- 對 REQ-C 的 merge commit 跑 6.1 節批次判斷腳本，一次驗證混合結果：`f01`~`f05` 判為情境 B（需人工比對）、`f06`~`f10` 判為情境 A（可直接 revert），與實際歷史相符。
+- 對應 6.1 節「建議包成 `workflow_dispatch` workflow」的建議，已實作為 `.github/workflows/revert-impact-check.yml`：輸入 merge commit SHA，自動輸出每個檔案該走「開新 PR + `git revert`」或「開新 PR + 人工 review 手動編輯」，並附上不依賴 `gh` CLI、純 `git log` 的對照查詢指令供未安裝 `gh` 的人員使用。實際觸發此 workflow 對 `6c86897` 執行，輸出與上述判斷一致。
+
 ## 7. 適用範圍說明
 
 本節（第 5～6 節）與第 1～4 節同屬「main＋環境快照 branch」採用模型，為此模型的實作細節補充，不另立獨立文件。若未來需要更複雜的回退情境（例如同時撤回多個互相依賴的需求），應於本節擴充，而非另開文件，以維持單一事實來源。

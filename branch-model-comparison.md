@@ -347,13 +347,13 @@ gitGraph
 
 **案例 3（10 檔混合，驗證 6.1 節自動化判斷）**
 
-- `jobs2/f01.txt` ~ `f10.txt`：REQ-C 一次修改全部 10 檔（merge commit `6c86897` "Mc1 merge REQ-C"）；REQ-D 接著只疊加修改其中 `f01`~`f05`（merge commit `5b60623` "Mc2 merge REQ-D"），`f06`~`f10` 未再被動過。
-- 對 REQ-C 的 merge commit 跑 6.1 節批次判斷腳本，一次驗證混合結果：`f01`~`f05` 判為情境 B（需人工比對）、`f06`~`f10` 判為情境 A（可直接 revert），與實際歷史相符。
+- `jobs2/f01.txt` ~ `f10.txt`：REQ-C 一次修改全部 10 檔（merge commit `6c86897` "Mc1 merge REQ-C"）；REQ-D 接著只疊加修改其中 `f01` 到 `f05`（merge commit `5b60623` "Mc2 merge REQ-D"），`f06` 到 `f10` 未再被動過。
+- 對 REQ-C 的 merge commit 跑 6.1 節批次判斷腳本，一次驗證混合結果：`f01` 到 `f05` 判為情境 B（需人工比對）、`f06` 到 `f10` 判為情境 A（可直接 revert），與實際歷史相符。
 - 對應 6.1 節「建議包成 `workflow_dispatch` workflow」的建議，已實作為 `.github/workflows/revert-impact-check.yml`：輸入 merge commit SHA，自動輸出每個檔案該走「開新 PR + `git revert`」或「開新 PR + 人工 review 手動編輯」，並附上不依賴 `gh` CLI、純 `git log` 的對照查詢指令供未安裝 `gh` 的人員使用。實際觸發此 workflow 對 `6c86897` 執行，輸出與上述判斷一致。
 
 ```mermaid
 gitGraph
-  commit id: "Mc0 init f01~f10"
+  commit id: "Mc0 init f01 to f10"
   branch feature/REQ-C
   checkout feature/REQ-C
   commit id: "REQ-C edit all 10 files"
@@ -361,12 +361,12 @@ gitGraph
   merge feature/REQ-C id: "6c86897 Mc1 merge REQ-C"
   branch feature/REQ-D
   checkout feature/REQ-D
-  commit id: "REQ-D edit f01~f05 only"
+  commit id: "REQ-D edit f01 to f05 only"
   checkout main
   merge feature/REQ-D id: "5b60623 Mc2 merge REQ-D"
 ```
 
-判斷 `6c86897` 時：`f01`~`f05` 因 `5b60623` 再次修改而落在情境 B（開新 PR + 人工 review），`f06`~`f10` 未被 `5b60623` 動到而落在情境 A（開新 PR + `git revert`），同一個 merge commit 底下不同檔案可以分屬不同流程。
+判斷 `6c86897` 時：`f01` 到 `f05` 因 `5b60623` 再次修改而落在情境 B（開新 PR + 人工 review），`f06` 到 `f10` 未被 `5b60623` 動到而落在情境 A（開新 PR + `git revert`），同一個 merge commit 底下不同檔案可以分屬不同流程。
 
 ## 7. 適用範圍說明
 

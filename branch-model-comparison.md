@@ -296,6 +296,26 @@ done
 - 判斷：`git log 68beb66..main -- jobs/load.kjb` 結果為空 → 情境 A。
 - 執行 `git revert -m 1 68beb66`：無衝突，`load.kjb` 回到 REQ-A 之前版本，`job2.kjb`（REQ-B 的變更）不受影響。回退結果併入 `main` 為 `3ff3065` "M3 revert REQ-A"。
 
+```mermaid
+gitGraph
+  commit id: "M0 init load.kjb+job2.kjb"
+  branch feature/REQ-A
+  checkout feature/REQ-A
+  commit id: "REQ-A edit load.kjb"
+  checkout main
+  merge feature/REQ-A id: "68beb66 M1 merge REQ-A"
+  branch feature/REQ-B
+  checkout feature/REQ-B
+  commit id: "REQ-B edit job2.kjb"
+  checkout main
+  merge feature/REQ-B id: "8890949 M2 merge REQ-B"
+  branch feature/REVERT-REQ-A
+  checkout feature/REVERT-REQ-A
+  commit id: "revert 68beb66, no conflict"
+  checkout main
+  merge feature/REVERT-REQ-A id: "3ff3065 M3 revert REQ-A"
+```
+
 **案例 2（情境 B，有後續衝突）**
 
 - `jobs/view.xml`：REQ-A2 加入內容（merge commit `a1a37a2` "M1b merge REQ-A2"），REQ-B2 在其基礎上再加內容（merge commit `988c2b2` "M2b merge REQ-B2"），兩需求改到同一檔案的重疊區塊。
@@ -303,11 +323,50 @@ done
 - 先實際嘗試 `git revert -m 1 a1a37a2` 驗證：產生真實 `CONFLICT (content)`，證實直接 revert 會打掉 REQ-B2 的變更，故 `git revert --abort` 中止。
 - 改人工比對後手動編輯 `view.xml`（只保留 REQ-B2 內容、移除 REQ-A2 內容），另開分支產生新 commit 併入 `main`（`f94258c` "M3b 撤回REQ-A2保留REQ-B2"）。
 
+```mermaid
+gitGraph
+  commit id: "M0b init view.xml"
+  branch feature/REQ-A2
+  checkout feature/REQ-A2
+  commit id: "REQ-A2 add A block"
+  checkout main
+  merge feature/REQ-A2 id: "a1a37a2 M1b merge REQ-A2"
+  branch feature/REQ-B2
+  checkout feature/REQ-B2
+  commit id: "REQ-B2 add B block on top of A"
+  checkout main
+  merge feature/REQ-B2 id: "988c2b2 M2b merge REQ-B2"
+  branch feature/RESTORE-REQ-A2
+  checkout feature/RESTORE-REQ-A2
+  commit id: "manual edit: keep B only, drop A"
+  checkout main
+  merge feature/RESTORE-REQ-A2 id: "f94258c M3b 撤回REQ-A2保留REQ-B2"
+```
+
+嘗試 `git revert -m 1 a1a37a2` 產生的 `CONFLICT` 因執行後隨即 `--abort`，未產生任何 commit，故不出現在上圖中；此步驟僅用來實證「情境 B 禁止直接 revert」的理由，實際回退路徑仍是 `RESTORE-REQ-A2` 這條分支。
+
 **案例 3（10 檔混合，驗證 6.1 節自動化判斷）**
 
 - `jobs2/f01.txt` ~ `f10.txt`：REQ-C 一次修改全部 10 檔（merge commit `6c86897` "Mc1 merge REQ-C"）；REQ-D 接著只疊加修改其中 `f01`~`f05`（merge commit `5b60623` "Mc2 merge REQ-D"），`f06`~`f10` 未再被動過。
 - 對 REQ-C 的 merge commit 跑 6.1 節批次判斷腳本，一次驗證混合結果：`f01`~`f05` 判為情境 B（需人工比對）、`f06`~`f10` 判為情境 A（可直接 revert），與實際歷史相符。
 - 對應 6.1 節「建議包成 `workflow_dispatch` workflow」的建議，已實作為 `.github/workflows/revert-impact-check.yml`：輸入 merge commit SHA，自動輸出每個檔案該走「開新 PR + `git revert`」或「開新 PR + 人工 review 手動編輯」，並附上不依賴 `gh` CLI、純 `git log` 的對照查詢指令供未安裝 `gh` 的人員使用。實際觸發此 workflow 對 `6c86897` 執行，輸出與上述判斷一致。
+
+```mermaid
+gitGraph
+  commit id: "Mc0 init f01~f10"
+  branch feature/REQ-C
+  checkout feature/REQ-C
+  commit id: "REQ-C edit all 10 files"
+  checkout main
+  merge feature/REQ-C id: "6c86897 Mc1 merge REQ-C"
+  branch feature/REQ-D
+  checkout feature/REQ-D
+  commit id: "REQ-D edit f01~f05 only"
+  checkout main
+  merge feature/REQ-D id: "5b60623 Mc2 merge REQ-D"
+```
+
+判斷 `6c86897` 時：`f01`~`f05` 因 `5b60623` 再次修改而落在情境 B（開新 PR + 人工 review），`f06`~`f10` 未被 `5b60623` 動到而落在情境 A（開新 PR + `git revert`），同一個 merge commit 底下不同檔案可以分屬不同流程。
 
 ## 7. 適用範圍說明
 

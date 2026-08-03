@@ -1,0 +1,83 @@
+name: Revert Impact Check
+
+# 唯讀查詢 workflow：判斷「回退某已合併需求分支的 merge commit」屬於
+# branch-model-comparison.md 第6節哪種情境（A：無後續衝突 / B：有後續衝突）。
+# 不觸碰 main 或快照 branch，不需要 Environment 核准。
+
+on:
+  workflow_dispatch:
+    inputs:
+      merge_commit:
+        description: "要回退的需求分支 merge commit SHA（例如 REQ-A 併入 main 的那個 merge commit）"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate input commit
+        run: |
+          set -euo pipefail
+          if ! git cat-file -e "${{ inputs.merge_commit }}^{commit}" 2>/dev/null; then
+            echo "::error::commit ${{ inputs.merge_commit }} 不存在於此 repo"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "${{ inputs.merge_commit }}" main; then
+            echo "::error::${{ inputs.merge_commit }} 不是 main 的祖先，非有效 merge commit"
+            exit 1
+          fi
+
+      - name: Classify affected files (情境 A / B)
+        id: classify
+        run: |
+          set -euo pipefail
+          MC="${{ inputs.merge_commit }}"
+
+          {
+            echo "## Revert Impact Check"
+            echo ""
+            echo "**目標 merge commit**: \`$MC\`"
+            echo "$(git log -1 --format='> %H %s (%an, %ad)' --date=short "$MC")"
+            echo ""
+            echo "| 檔案 | 情境 | 說明 |"
+            echo "| --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          any_b=0
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            hits=$(git log --oneline "${MC}..main" -- "$f")
+            if [ -z "$hits" ]; then
+              echo "| \`$f\` | A（可直接 revert） | 此檔在 $MC 之後未被其他已合併需求修改 |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              any_b=1
+              echo "| \`$f\` | B（需人工比對） | 之後仍被以下 commit 修改，禁止直接 revert：" >> "$GITHUB_STEP_SUMMARY"
+              echo "$hits" | while IFS= read -r h; do
+                sha=$(echo "$h" | awk '{print $1}')
+                {
+                  echo ""
+                  echo "  - \`$h\`"
+                  echo "    - 相關 PR：見下方 gh pr list 查詢，或 commit message 中的 \`REQ-\` 編號"
+                } >> "$GITHUB_STEP_SUMMARY"
+              done
+            fi
+          done < <(git diff --name-only "${MC}^" "$MC")
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$any_b" -eq 1 ]; then
+            echo "> ⚠️ 至少一個檔案屬於情境 B：**禁止直接 \`git revert\`**，須列出後續需求負責人核對後，開新 PR 手動編輯檔案，只移除本次要回退的變更、保留後續需求的變更。" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "> ✅ 全部檔案屬於情境 A：可用 \`git revert -m 1 $MC\` 直接回退，並開 PR 走正常 review 流程。" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "本 workflow 僅產生分流依據，**不執行任何 revert 或寫入操作**；最終仍須依 branch-model-comparison.md 第6節走「開 PR、人工 review」流程。" >> "$GITHUB_STEP_SUMMARY"

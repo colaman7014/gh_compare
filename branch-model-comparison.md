@@ -368,6 +368,52 @@ gitGraph
 
 判斷 `6c86897` 時：`f01` 到 `f05` 因 `5b60623` 再次修改而落在情境 B（開新 PR + 人工 review），`f06` 到 `f10` 未被 `5b60623` 動到而落在情境 A（開新 PR + `git revert`），同一個 merge commit 底下不同檔案可以分屬不同流程。
 
+### 6.3 混合檔案的處理方式（案例 A／案例 B／案例 A+B）
+
+同一個 merge commit 底下的檔案分屬情境 A、情境 B 時，**不對整個 merge commit 執行 `git revert` 再看衝突手動解決**：conflict 畫面只顯示「回退候選版本」與「目前版本」兩邊，看不出目標需求當初改了什麼、後續各需求各自加了什麼，人工判斷成本不會降低，還會把情境 A 本來乾淨的檔案一起捲進衝突處理。依 6.1 節判斷結果，分三種案例分開處理：
+
+**案例 A：全部檔案皆為情境 A**
+
+開一個 PR，直接對整個 merge commit 執行：
+
+```bash
+git checkout -b revert/<merge-commit-sha>
+git revert -m 1 <merge-commit-sha>
+```
+
+commit、push、開 PR、review、merge 即完成，無需逐檔案處理。
+
+**案例 B：全部檔案皆為情境 B**
+
+禁止對此 merge commit 執行 `git revert`。開一個 PR，對每個檔案依序執行：
+
+1. 列出此檔案之後動過的 commit：`git log --oneline <merge-commit-sha>..main -- <file>`
+2. 用 commit message 中的 `REQ-` 編號（或 `gh pr list --search <sha>`，若有安裝 `gh`）反查對應需求單與負責人
+3. 看目標 commit 當初改了什麼：`git show <merge-commit-sha> -- <file>`
+4. 對步驟 1 列出的每個後續 commit 執行 `git show <sha> -- <file>`，確認各自加了什麼
+5. 比對目前檔案內容，判斷哪些部分屬於要回退的需求、哪些屬於後續需求
+6. 用編輯器手動修改檔案：只移除要回退需求的內容，保留後續需求的內容
+7. 找步驟 2 的負責人核對回退後內容是否仍符合他們原本需求，核對結果記錄在 PR 描述中（呼應 189 行規則）
+8. commit、push、開 PR、review、merge
+
+**案例 A+B：同一個 merge commit 混合兩種檔案**
+
+拆開處理，不要對整個 merge commit 執行 `git revert`：
+
+- 情境 A 的檔案逐檔處理，**不使用 `git revert`**，改用 `git checkout <merge-commit-sha>^ -- <file>` 把該檔案內容換回目標 commit 之前版本（只換單一檔案內容，不觸及其他檔案，不會產生衝突）：
+
+  ```bash
+  git checkout -b revert/<merge-commit-sha>
+  git checkout <merge-commit-sha>^ -- <file-A-1>
+  git checkout <merge-commit-sha>^ -- <file-A-2>
+  git commit -m "revert changes from <merge-commit-sha> (no later modification)"
+  ```
+
+- 情境 B 的檔案逐檔走「案例 B」步驟 1～6 的人工比對與手動編輯，另外 commit。
+- 兩類變更可合併成同一個 PR、分成不同 commit，PR 描述需列出情境 B 檔案的核對結果（呼應 189 行規則）。
+
+以上三種分類與對應處理方式已實作於 `.github/workflows/revert-impact-check.yml`：workflow 根據 6.1 節判斷結果自動歸類為案例 A／案例 B／案例 A+B，並在 job summary 輸出對應的可複製指令或人工處理步驟。已用本 repo 案例驗證：`8890949`（純案例 A）、`a1a37a2`（純案例 B）、`6c86897`（案例 A+B，10 檔混合）三種輸出皆正確。
+
 ## 7. 適用範圍說明
 
 本節（第 5～6 節）與第 1～4 節同屬「main＋環境快照 branch」採用模型，為此模型的實作細節補充，不另立獨立文件。若未來需要更複雜的回退情境（例如同時撤回多個互相依賴的需求），應於本節擴充，而非另開文件，以維持單一事實來源。
